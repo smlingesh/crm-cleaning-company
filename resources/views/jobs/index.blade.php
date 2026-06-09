@@ -2360,6 +2360,44 @@
                 });
             });
 
+            // Cancel Job Button
+            $(document).on('click', '.cancelJobBtn', function () {
+                const jobId = $(this).data('id');
+
+                Swal.fire({
+                    title: 'Reset to Pending?',
+                    html: 'This will reset the job status to <strong>Pending</strong> and clear the scheduled date & time.<br><br>Are you sure?',
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#f39c12',
+                    cancelButtonColor: '#6c757d',
+                    confirmButtonText: 'Yes, Reset it!',
+                    cancelButtonText: 'No, Keep it',
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        $.ajax({
+                            url: `/jobs/${jobId}/cancel`,
+                            method: 'POST',
+                            data: {
+                                _token: $('meta[name="csrf-token"]').attr('content'),
+                            },
+                            success: function (response) {
+                                if (response.success) {
+                                    Swal.fire('Reset!', response.message, 'success')
+                                        .then(() => location.reload());
+                                } else {
+                                    Swal.fire('Error', response.message, 'error');
+                                }
+                            },
+                            error: function (xhr) {
+                                const msg = xhr.responseJSON?.message || 'Something went wrong.';
+                                Swal.fire('Error', msg, 'error');
+                            }
+                        });
+                    }
+                });
+            });
+
             // Update Complete Job Button (already exists, just ensure it checks for approved status)
             $(document).on('click', '.completeJobBtn', function() {
                 let jobId = $(this).data('id');

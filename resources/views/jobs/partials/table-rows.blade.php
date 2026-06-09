@@ -129,6 +129,17 @@
                     </a>
                 @endif
 
+                {{-- CANCEL Button - Super Admin, Lead Manager & Telecallers can cancel APPROVED or CONFIRMED jobs --}}
+                @if(in_array($user->role, ['super_admin', 'lead_manager', 'telecallers']) &&
+                    in_array($job->status, ['approved', 'confirmed']))
+                    <a href="javascript:void(0);"
+                    class="text-warning cancelJobBtn"
+                    data-id="{{ $job->id }}"
+                    title="Cancel &amp; Reset to Pending">
+                        <i class="las la-undo fs-20"></i>
+                    </a>
+                @endif
+
                 {{-- COMPLETE Button - Only for APPROVED jobs --}}
                 @if($job->status === 'approved' &&
                     ($user->role === 'super_admin' ||

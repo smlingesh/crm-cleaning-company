@@ -1785,4 +1785,48 @@ class JobController extends Controller
         ]);
     }
 
+    public function cancelJob(Request $request, Job $job)
+    {
+        try {
+            $user = auth()->user();
+
+            // Only super_admin, lead_manager and telecallers can cancel
+            if (!in_array($user->role, ['super_admin', 'lead_manager', 'telecallers'])) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+            }
+
+            // Only approved or confirmed jobs can be cancelled
+            if (!in_array($job->status, ['approved', 'confirmed'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only approved or confirmed jobs can be reset.'
+                ], 400);
+            }
+
+            $previousStatus = $job->status;
+
+            // Reset status to pending, clear schedule
+            $job->update([
+                'status'         => 'pending',
+                'scheduled_date' => null,
+                'scheduled_time' => null,
+            ]);
+
+            Log::info('Job cancelled and reset to pending', [
+                'job_id'          => $job->id,
+                'previous_status' => $previousStatus,
+                'reset_by'        => $user->id,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Job has been reset to pending. Schedule has been cleared.',
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Job cancel error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'Error resetting job'], 500);
+        }
+    }
+
 }
