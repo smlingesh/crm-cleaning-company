@@ -8,11 +8,16 @@ class JobStaff extends Model
 {
     protected $fillable = [
         'job_id', 'user_id', 'temp_name', 'temp_phone',
-        'role', 'staff_type', 'notes', 'added_by',
+        'role', 'staff_type', 'notes', 'work_date', 'assignment_batch_id',
+        'is_pending_approval', 'added_by',
         'approval_status', 'approved_by', 'approved_at', 'approval_notes',
     ];
 
-    protected $casts = ['approved_at' => 'datetime'];
+    protected $casts = [
+        'approved_at'          => 'datetime',
+        'work_date'            => 'date',
+        'is_pending_approval'  => 'boolean',
+    ];
 
     public function job()      { return $this->belongsTo(Job::class); }
     public function user()     { return $this->belongsTo(User::class, 'user_id'); }
