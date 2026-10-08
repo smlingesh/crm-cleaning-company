@@ -10,6 +10,7 @@ use App\Models\JobFollowup;
 use App\Models\JobNote;
 use App\Models\JobRating;
 use App\Models\JobStaff;
+use Illuminate\Support\Str;
 use App\Models\Service;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -1487,6 +1488,7 @@ class JobController extends Controller
                 'temp_name'  => 'required_if:staff_type,temporary|nullable|string|max:255',
                 'temp_phone' => 'nullable|string|max:20',
                 'notes'      => 'nullable|string|max:500',
+                'work_date'  => 'nullable|date',
             ]);
 
             // Validate the registered user actually has the correct role
@@ -1502,13 +1504,16 @@ class JobController extends Controller
 
             JobStaff::create([
                 ...$validated,
-                'job_id'   => $job->id,
-                'added_by' => auth()->id(),
-                // ✅ NO approval_status here — removed
+                'job_id'              => $job->id,
+                'work_date'           => $validated['work_date'] ?? now()->toDateString(),
+                'assignment_batch_id' => (string) Str::uuid(),
+                'is_pending_approval' => true,
+                'added_by'            => auth()->id(),
             ]);
 
-            // ✅ Flip the whole work order to pending approval
-            $job->update(['status' => 'staff_pending_approval']);
+            if ($job->status !== 'staff_pending_approval') {
+                $job->update(['status' => 'staff_pending_approval']);
+            }
 
             Log::info('Staff added to job — awaiting approval', [
                 'job_id' => $job->id, 'added_by' => auth()->id(),
@@ -1545,6 +1550,7 @@ class JobController extends Controller
             ]);
 
             if ($validated['action'] === 'approve') {
+                $job->staff()->where('is_pending_approval', true)->update(['is_pending_approval' => false]);
                 $job->update([
                     'status'      => 'completed',
                     'approved_by' => auth()->id(),
@@ -1552,10 +1558,10 @@ class JobController extends Controller
                 ]);
                 $message = 'Staff approved. Work order restored to Completed.';
             } else {
-                // Reject — wipe all staff and restore
-                $job->staff()->delete();
+                // Reject — remove only the pending assignment batch(es), keep history
+                $job->staff()->where('is_pending_approval', true)->delete();
                 $job->update(['status' => 'completed']);
-                $message = 'Staff rejected and removed. Work order restored to Completed.';
+                $message = 'Pending staff assignment rejected. Previous staff history is unchanged.';
             }
 
             Log::info('Job staff approval', [
@@ -1582,8 +1588,8 @@ class JobController extends Controller
 
             $staff->delete();
 
-            // ✅ If no staff remain, restore completed status
-            if ($job->status === 'staff_pending_approval' && $job->staff()->count() === 0) {
+            if ($job->status === 'staff_pending_approval'
+                && ! $job->staff()->where('is_pending_approval', true)->exists()) {
                 $job->update(['status' => 'completed']);
             }
 
@@ -1746,12 +1752,16 @@ class JobController extends Controller
 
         $request->validate([
             'staff'              => 'required|array|min:1',
+            'work_date'          => 'nullable|date',
             'staff.*.role'       => 'required|in:supervisor,worker',
             'staff.*.staff_type' => 'required|in:registered,temporary',
             'staff.*.user_id'    => 'required_if:staff.*.staff_type,registered|nullable|exists:users,id',
             'staff.*.temp_name'  => 'required_if:staff.*.staff_type,temporary|nullable|string|max:255',
             'staff.*.notes'      => 'nullable|string|max:500',
         ]);
+
+        $workDate = $request->input('work_date', now()->toDateString());
+        $batchId  = (string) Str::uuid();
 
         foreach ($request->staff as $entry) {
             // Validate registered user actually has the correct role
@@ -1766,18 +1776,22 @@ class JobController extends Controller
             }
 
             $job->staff()->create([
-                'user_id'    => $entry['staff_type'] === 'registered' ? $entry['user_id'] : null,
-                'temp_name'  => $entry['staff_type'] === 'temporary'  ? $entry['temp_name'] : null,
-                'temp_phone' => $entry['staff_type'] === 'temporary'  ? $entry['temp_phone'] : null,
-                'role'       => $entry['role'],
-                'staff_type' => $entry['staff_type'],
-                'notes'      => $entry['notes'] ?? null,
-                'added_by'   => auth()->id(),
+                'user_id'              => $entry['staff_type'] === 'registered' ? $entry['user_id'] : null,
+                'temp_name'            => $entry['staff_type'] === 'temporary'  ? $entry['temp_name'] : null,
+                'temp_phone'           => $entry['staff_type'] === 'temporary'  ? ($entry['temp_phone'] ?? null) : null,
+                'role'                 => $entry['role'],
+                'staff_type'           => $entry['staff_type'],
+                'notes'                => $entry['notes'] ?? null,
+                'work_date'            => $workDate,
+                'assignment_batch_id'  => $batchId,
+                'is_pending_approval'  => true,
+                'added_by'             => auth()->id(),
             ]);
         }
 
-        // Flip the whole job to pending approval — same as single addStaff()
-        $job->update(['status' => 'staff_pending_approval']);
+        if ($job->status !== 'staff_pending_approval') {
+            $job->update(['status' => 'staff_pending_approval']);
+        }
 
         return response()->json([
             'success' => true,

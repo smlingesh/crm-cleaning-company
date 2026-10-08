@@ -407,6 +407,18 @@ body          { overflow-x: hidden; }
                 {{-- ── Entry Builder ── --}}
                 <div id="staffEntryBuilder">
 
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold" style="font-size:0.83rem;">
+                            Work Date <span class="text-danger">*</span>
+                        </label>
+                        <input type="date" id="staffWorkDate" class="form-control"
+                               style="border-radius:8px;font-size:0.88rem;"
+                               value="{{ now()->toDateString() }}">
+                        <small class="text-muted" style="font-size:0.76rem;">
+                            Date when this team worked on the job.
+                        </small>
+                    </div>
+
                     {{-- Staff Type --}}
                     <div class="mb-3">
                         <label class="form-label fw-semibold mb-2" style="font-size:0.83rem;">
@@ -543,7 +555,7 @@ function quickApproveStaff(jobId, action) {
         title             : isApprove ? 'Approve Staff?' : 'Reject & Remove?',
         text              : isApprove
             ? 'Staff will be approved and the work order stays Completed.'
-            : 'All pending staff will be removed. Work order stays Completed.',
+            : 'Only the latest pending assignment will be removed. Previous staff history stays.',
         icon              : 'question',
         showCancelButton  : true,
         confirmButtonColor: isApprove ? '#10b981' : '#ef4444',
@@ -819,6 +831,7 @@ $(document).ready(function () {
 
         staffQueue = [];
         resetEntryBuilder();
+        $('#staffWorkDate').val(new Date().toISOString().slice(0, 10));
         renderQueue();
 
         addStaffModal.show();
@@ -905,6 +918,12 @@ $(document).ready(function () {
     $('#saveAllStaffBtn').on('click', function () {
         if (staffQueue.length === 0) return;
 
+        const workDate = $('#staffWorkDate').val();
+        if (!workDate) {
+            Swal.fire('Missing Work Date', 'Please select the work date for this assignment.', 'warning');
+            return;
+        }
+
         const $btn = $(this);
         $btn.prop('disabled', true).html(
             '<span class="spinner-border spinner-border-sm me-1"></span>Saving…'
@@ -914,7 +933,7 @@ $(document).ready(function () {
             url        : `/jobs/${currentJobId}/staff/bulk`,
             type       : 'POST',
             contentType: 'application/json',
-            data       : JSON.stringify({ staff: staffQueue }),
+            data       : JSON.stringify({ staff: staffQueue, work_date: workDate }),
             headers    : { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content') },
             success(res) {
                 addStaffModal.hide();

@@ -591,6 +591,47 @@
         .staff-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
         .staff-card.supervisor { border-left: 4px solid #2563eb; }
         .staff-card.worker     { border-left: 4px solid #7c3aed; }
+
+        .staff-assignment-group {
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #fff;
+        }
+        .staff-assignment-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .staff-assignment-header .assignment-title {
+            font-weight: 700;
+            color: #1e293b;
+            font-size: 0.9rem;
+        }
+        .staff-assignment-header .assignment-meta {
+            font-size: 0.78rem;
+            color: #64748b;
+        }
+        .staff-assignment-body { padding: 0.75rem 1rem 0.25rem; }
+        .staff-history-summary {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+        .staff-history-summary .pill {
+            background: #eff6ff;
+            color: #1d4ed8;
+            border: 1px solid #bfdbfe;
+            border-radius: 999px;
+            padding: 0.2rem 0.65rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
         .staff-avatar {
             width: 42px; height: 42px; border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
@@ -925,7 +966,17 @@
                                 <div class="d-flex justify-content-between align-items-center">
                                     <h5>
                                         <i class="las la-hard-hat"></i> Supervisors &amp; Workers
-                                        @php $allStaff = $job->staff()->with('user','addedBy')->get(); @endphp
+                                        @php
+                                            $allStaff = $job->staff()->with('user', 'addedBy')
+                                                ->orderByDesc('work_date')
+                                                ->orderByDesc('created_at')
+                                                ->get();
+                                            $staffAssignmentGroups = $allStaff->groupBy('assignment_batch_id')
+                                                ->sortBy(fn ($group) => $group->first()->work_date?->format('Y-m-d').' '.$group->first()->created_at?->format('Y-m-d H:i:s'))
+                                                ->values();
+                                            $attemptCount = $staffAssignmentGroups->count();
+                                            $workDaysCount = $allStaff->pluck('work_date')->filter()->unique()->count();
+                                        @endphp
                                         @if($allStaff->count())
                                             <span class="badge bg-primary ms-2" style="font-size:0.72rem;">
                                                 {{ $allStaff->count() }} {{ Str::plural('member', $allStaff->count()) }}
@@ -963,88 +1014,66 @@
                             </div>
                             @endif
 
-                            {{-- Staff list --}}
+                            {{-- Staff assignment history --}}
                             @if($allStaff->count())
+                                <div class="staff-history-summary px-1">
+                                    <span class="pill">{{ $attemptCount }} {{ Str::plural('assignment', $attemptCount) }}</span>
+                                    <span class="pill">{{ $workDaysCount }} work {{ Str::plural('day', $workDaysCount) }}</span>
+                                    <span class="pill">{{ $allStaff->count() }} staff {{ Str::plural('entry', $allStaff->count()) }}</span>
+                                </div>
 
-                                {{-- Supervisors --}}
-                                @php $supervisorList = $allStaff->where('role','supervisor'); @endphp
-                                @if($supervisorList->count())
-                                <div class="mb-3">
-                                    <div class="d-flex align-items-center mb-2">
-                                        <span style="width:10px;height:10px;border-radius:50%;background:#2563eb;display:inline-block;margin-right:8px;"></span>
-                                        <small class="fw-bold text-uppercase text-muted" style="letter-spacing:0.5px;">Supervisors</small>
-                                    </div>
-                                    @foreach($supervisorList as $member)
-                                    <div class="staff-card supervisor">
-                                        <div class="staff-avatar supervisor">
-                                            {{ strtoupper(substr($member->display_name, 0, 2)) }}
-                                        </div>
-                                        <div class="staff-meta">
-                                            <div class="staff-name">{{ $member->display_name }}</div>
-                                            <div class="staff-sub">
-                                                @if($member->display_phone)
-                                                    <i class="las la-phone me-1"></i>{{ $member->display_phone }}
-                                                    &nbsp;·&nbsp;
-                                                @endif
-                                                <span class="badge" style="background:#eff6ff;color:#2563eb;font-size:0.7rem;padding:2px 7px;">
-                                                    {{ ucfirst($member->staff_type) }}
-                                                </span>
-                                                &nbsp;·&nbsp;
-                                                <small>Added by {{ $member->addedBy?->name ?? 'N/A' }}</small>
+                                @foreach($staffAssignmentGroups->reverse() as $groupMembers)
+                                    @php
+                                        $groupFirst = $groupMembers->first();
+                                        $attemptNum = $attemptCount - $loop->index;
+                                        $groupPending = $groupMembers->contains(fn ($m) => $m->is_pending_approval);
+                                        $supervisorList = $groupMembers->where('role', 'supervisor');
+                                        $workerList = $groupMembers->where('role', 'worker');
+                                    @endphp
+                                    <div class="staff-assignment-group mb-3">
+                                        <div class="staff-assignment-header">
+                                            <div>
+                                                <div class="assignment-title">
+                                                    Assignment #{{ $attemptNum }}
+                                                    · {{ $groupFirst->work_date?->format('d M Y') ?? '—' }}
+                                                </div>
+                                                <div class="assignment-meta">
+                                                    {{ $groupMembers->count() }} staff
+                                                    · Logged {{ $groupFirst->created_at?->format('d M Y, h:i A') }}
+                                                    · Added by {{ $groupFirst->addedBy?->name ?? 'N/A' }}
+                                                </div>
                                             </div>
+                                            @if($groupPending)
+                                                <span class="badge bg-warning text-dark">Pending approval</span>
+                                            @endif
                                         </div>
-                                        <div class="staff-actions">
-                                            @if(auth()->user()->role === 'super_admin' || $member->added_by === auth()->id())
-                                            <button class="btn btn-sm btn-outline-danger deleteStaffBtn"
-                                                data-id="{{ $member->id }}" title="Remove">
-                                                <i class="las la-trash"></i>
-                                            </button>
+                                        <div class="staff-assignment-body">
+                                            @if($supervisorList->count())
+                                                <div class="mb-2">
+                                                    <div class="d-flex align-items-center mb-2">
+                                                        <span style="width:10px;height:10px;border-radius:50%;background:#2563eb;display:inline-block;margin-right:8px;"></span>
+                                                        <small class="fw-bold text-uppercase text-muted" style="letter-spacing:0.5px;">Supervisors</small>
+                                                    </div>
+                                                    @foreach($supervisorList as $member)
+                                                        @include('jobs.partials.staff-member-card', ['member' => $member])
+                                                    @endforeach
+                                                </div>
+                                            @endif
+
+                                            @if($workerList->count())
+                                                <div class="mb-2">
+                                                    <div class="d-flex align-items-center mb-2">
+                                                        <span style="width:10px;height:10px;border-radius:50%;background:#7c3aed;display:inline-block;margin-right:8px;"></span>
+                                                        <small class="fw-bold text-uppercase text-muted" style="letter-spacing:0.5px;">Workers</small>
+                                                    </div>
+                                                    @foreach($workerList as $member)
+                                                        @include('jobs.partials.staff-member-card', ['member' => $member])
+                                                    @endforeach
+                                                </div>
                                             @endif
                                         </div>
                                     </div>
-                                    @endforeach
-                                </div>
-                                @endif
-
-                                {{-- Workers --}}
-                                @php $workerList = $allStaff->where('role','worker'); @endphp
-                                @if($workerList->count())
-                                <div class="mb-2">
-                                    <div class="d-flex align-items-center mb-2">
-                                        <span style="width:10px;height:10px;border-radius:50%;background:#7c3aed;display:inline-block;margin-right:8px;"></span>
-                                        <small class="fw-bold text-uppercase text-muted" style="letter-spacing:0.5px;">Workers</small>
-                                    </div>
-                                    @foreach($workerList as $member)
-                                    <div class="staff-card worker">
-                                        <div class="staff-avatar worker">
-                                            {{ strtoupper(substr($member->display_name, 0, 2)) }}
-                                        </div>
-                                        <div class="staff-meta">
-                                            <div class="staff-name">{{ $member->display_name }}</div>
-                                            <div class="staff-sub">
-                                                @if($member->display_phone)
-                                                    <i class="las la-phone me-1"></i>{{ $member->display_phone }}
-                                                    &nbsp;·&nbsp;
-                                                @endif
-                                                <span class="badge" style="background:#f5f3ff;color:#7c3aed;font-size:0.7rem;padding:2px 7px;">
-                                                    {{ ucfirst($member->staff_type) }}
-                                                </span>
-                                                &nbsp;·&nbsp;
-                                                <small>Added by {{ $member->addedBy?->name ?? 'N/A' }}</small>
-                                            </div>
-                                        </div>
-                                        <div class="staff-actions">
-                                            @if(auth()->user()->role === 'super_admin' || $member->added_by === auth()->id())
-                                            <button class="btn btn-sm btn-outline-danger deleteStaffBtn"
-                                                data-id="{{ $member->id }}" title="Remove">
-                                                <i class="las la-trash"></i>
-                                            </button>
-                                            @endif
-                                        </div>
-                                    </div>
-                                    @endforeach
-                                </div>
-                                @endif
+                                @endforeach
 
                             @else
                                 <div class="empty-state">
@@ -1810,6 +1839,19 @@
 
                     {{-- ── Entry Builder ── --}}
                     <div id="staffEntryBuilder">
+
+                        {{-- Work date for this assignment --}}
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold" style="font-size:0.83rem;">
+                                Work Date <span class="text-danger">*</span>
+                            </label>
+                            <input type="date" id="staffWorkDate" class="form-control"
+                                   style="border-radius:8px;font-size:0.88rem;"
+                                   value="{{ now()->toDateString() }}">
+                            <small class="text-muted" style="font-size:0.76rem;">
+                                Date when this team worked on the job (for multi-day work orders).
+                            </small>
+                        </div>
 
                         {{-- Staff Type --}}
                         <div class="mb-3">
@@ -3179,6 +3221,7 @@
             $('[data-bs-target="#addStaffModal"]').on('click', function () {
                 staffQueue = [];
                 resetEntryBuilder();
+                $('#staffWorkDate').val(new Date().toISOString().slice(0, 10));
                 renderQueue();
             });
 
@@ -3272,6 +3315,12 @@
             $('#saveAllStaffBtn').on('click', function () {
                 if (staffQueue.length === 0) return;
 
+                const workDate = $('#staffWorkDate').val();
+                if (!workDate) {
+                    Swal.fire('Missing Work Date', 'Please select the work date for this assignment.', 'warning');
+                    return;
+                }
+
                 const $btn = $(this);
                 $btn.prop('disabled', true).html(
                     '<span class="spinner-border spinner-border-sm me-1"></span>Saving…'
@@ -3281,7 +3330,7 @@
                     url        : `/jobs/{{ $job->id }}/staff/bulk`,
                     type       : 'POST',
                     contentType: 'application/json',
-                    data       : JSON.stringify({ staff: staffQueue }),
+                    data       : JSON.stringify({ staff: staffQueue, work_date: workDate }),
                     headers    : { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content') },
                     success(res) {
                         addStaffModal.hide();
@@ -3418,7 +3467,7 @@
                     title             : isApprove ? 'Approve Staff?' : 'Reject & Remove?',
                     text              : isApprove
                         ? 'Staff will be approved and the work order stays Completed.'
-                        : 'All pending staff will be removed. Work order stays Completed.',
+                        : 'Only the latest pending assignment will be removed. Previous staff history stays.',
                     icon              : 'question',
                     showCancelButton  : true,
                     confirmButtonColor: isApprove ? '#10b981' : '#ef4444',
